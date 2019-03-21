@@ -3,6 +3,15 @@ require "geonames_dump/blocks"
 require "geonames_dump/railtie" if defined?(Rails)
 
 module GeonamesDump
+  class << self
+    attr_writer :logger
+
+    def logger
+      @logger ||= Logger.new($stdout).tap do |log|
+        log.progname = self.name
+      end
+    end
+  end
 
   def self.search(query, options = {})
     ret = nil
@@ -36,6 +45,7 @@ module GeonamesDump
     include Amatch
 
     max_size = options[:max_size] || 25
+    debug = options[:debug] == true
 
     begin
       # 1) search name in features
@@ -51,6 +61,10 @@ module GeonamesDump
       small.reject!{|s| s[1] < 0.75}
       # 6) remove results that are also country (searching name in countries)
       small.reject{|s| GeonamesCountry.find_by(country: s[-1])}
+      # log small results if requested with options debug: true
+      logger.info(small) if debug
+      # respond with objects collection
+      GeonamesFeature.where(id: small.map{|s| s[2]})
     rescue NameError => e
       raise $!, "GeonamesDump.smart_search, #{$!}", $!.backtrace
     end
