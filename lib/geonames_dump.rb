@@ -39,7 +39,7 @@ module GeonamesDump
     ret
   end
 
-  # Search best city matches based on population and the Jaro-Winkler distance
+  # Search best city matches based on population and the Jaro-Winkler similarity
   def self.smart_city_search(q, options = {})
     require 'amatch'
     include Amatch
@@ -51,20 +51,22 @@ module GeonamesDump
       # 1) search name in features
       ret = GeonamesCity.search(q.downcase).compact.uniq
       # 2) add search name in alternate_names & remove duplicates and nils
-      ret += GeonamesAlternateName.search(q.downcase).map { |alternate| alternate.feature }.compact.uniq
+      ret += GeonamesAlternateName.includes(:geonames_feature).search(q.downcase).map { |alternate| alternate.feature }.compact.uniq
       # 3) order for population desc and remove if name too distant (JaroWinkler)
       m = JaroWinkler.new(q.downcase)
-      sorted = ret.map{ |r| [ r.population.to_i, m.match(r.name.downcase), r.id, r.name ] }.sort_by{|a| [-a[0]] }
+      # arrays structure used for sorting/selection: [ population, similarity, id, geonameid, name ]
+      sorted = ret.map{ |r| [ r.population.to_i, m.match(r.name.downcase), r.id, r.geonameid, r.name ] }.sort_by{|a| [-a[0]] }
       # 4) limit to top (max_size)
       small = sorted[0,max_size]
       # 5) remove too distant names (JaroWinkler < 0.75)
-      small.reject!{|s| s[1] < 0.75}
+      small.reject!{ |s| s[1] < 0.75 }
       # 6) remove results that are also country (searching name in countries)
-      small.reject!{|s| GeonamesCountry.find_by(country: s[-1])}
+      countries = GeonamesCountry.where(geonameid: small.map{|s| s[-2]}).select(:geonameid).map(&:geonameid)
+      small.reject!{ |s| countries.include? s[-2] }
       # log small results if requested with options debug: true
       logger.info(small) if debug
       # respond with objects collection
-      ids = small.map{|s| s[2]}
+      ids = small.map{ |s| s[2] }
       GeonamesFeature.where(id: ids).sort_by{|gf| ids.index(gf.id)}
     rescue NameError => e
       raise $!, "GeonamesDump.smart_search, #{$!}", $!.backtrace
