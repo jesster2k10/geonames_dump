@@ -60,11 +60,12 @@ module GeonamesDump
       # 5) remove too distant names (JaroWinkler < 0.75)
       small.reject!{|s| s[1] < 0.75}
       # 6) remove results that are also country (searching name in countries)
-      small.reject{|s| GeonamesCountry.find_by(country: s[-1])}
+      small.reject!{|s| GeonamesCountry.find_by(country: s[-1])}
       # log small results if requested with options debug: true
       logger.info(small) if debug
       # respond with objects collection
-      GeonamesFeature.where(id: small.map{|s| s[2]})
+      ids = small.map{|s| s[2]}
+      GeonamesFeature.where(id: ids).sort_by{|gf| ids.index(gf.id)}
     rescue NameError => e
       raise $!, "GeonamesDump.smart_search, #{$!}", $!.backtrace
     end
